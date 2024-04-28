@@ -22,13 +22,14 @@ RED = (200,0,0)
 BLUE1 = (0, 0, 255)
 BLUE2 = (0, 100, 255)
 BLACK = (0,0,0)
+YELLOW = (255, 255, 0)
 
-BLOCK_SIZE = 20
-SPEED = 50
+BLOCK_SIZE = 60
+SPEED = 10000
 
 class SnakeGameAI:
     
-    def __init__(self, w=640, h=480):
+    def __init__(self, w=480, h=480):
         self.w = w
         self.h = h
         # init display
@@ -46,19 +47,36 @@ class SnakeGameAI:
         self.head = Point(self.w/2, self.h/2)
         self.snake = [self.head, 
                       Point(self.head.x-BLOCK_SIZE, self.head.y),
-                      Point(self.head.x-(2*BLOCK_SIZE), self.head.y)]
+                      Point(self.head.x-(2*BLOCK_SIZE), self.head.y),
+                      Point(self.head.x-(3*BLOCK_SIZE), self.head.y)]
         
         self.score = 0
-        self.food = None
-        self._place_food()
+        self.healthy_seed_consumed = 0
+        self.drug_seed_consumed = 0
+        self.healthy_food = Point(np.inf, np.inf)
+        self.drug_food = Point(np.inf, np.inf)
+        self._place_food(type="healthy")
+        self._place_food(type="drug")
         self.frame_it=0
+        self.u_healthy = 1
+        self.u_drug = 1
+        self.delay = 0
+        self.k = 1
+        self.rc = 20
 
-    def _place_food(self):
-        x = random.randint(0, (self.w-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE 
-        y = random.randint(0, (self.h-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE
-        self.food = Point(x, y)
-        if self.food in self.snake:
-            self._place_food()
+    def _place_food(self, type):
+        if type == "healthy":
+            x = random.randint(0, (self.w-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE 
+            y = random.randint(0, (self.h-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE
+            self.healthy_food = Point(x, y)
+            if self.healthy_food in self.snake or self.healthy_food in self.drug_food:
+                self._place_food(type)
+        else:
+            x = random.randint(0, (self.w-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE 
+            y = random.randint(0, (self.h-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE
+            self.drug_food = Point(x, y)
+            if self.drug_food in self.snake or self.drug_food in self.healthy_food:
+                self._place_food(type)
         
     def play_step(self,action):
         self.frame_it+=1
@@ -76,24 +94,36 @@ class SnakeGameAI:
         # 3. check if game over
         reward =0
         game_over = False
-        if self.is_collision() or self.frame_it > 100*len(self.snake) :
+        if self.is_collision() or self.frame_it > 100*len(self.snake):
             game_over = True
-            reward = -10
-            return reward,game_over, self.score
+            reward = -self.rc
+            self.snake.pop()
+            return reward,game_over,self.score,self.healthy_seed_consumed,self.drug_seed_consumed, len(self.snake)
+        
             
         # 4. place new food or just move
-        if self.head == self.food:
+        if self.delay > 0:
+            self.delay -= 1
+        if self.head == self.healthy_food:
             self.score += 1
-            reward =10
-            self._place_food()
-        else:
+            self.healthy_seed_consumed += 1
+            reward = self.rc
+            self._place_food(type="healthy")
+            self.delay += self.u_healthy
+        elif self.head == self.drug_food:
+            self.score += 1
+            self.drug_seed_consumed += 1
+            reward = self.rc*self.k
+            self._place_food(type="drug")
+            self.delay += self.u_drug
+        elif self.delay <= 0:
             self.snake.pop()
         
         # 5. update ui and clock
         self._update_ui()
         self.clock.tick(SPEED)
         # 6. return game over and score
-        return reward, game_over, self.score
+        return reward, game_over, self.score, self.healthy_seed_consumed, self.drug_seed_consumed, len(self.snake)
     
     def is_collision(self,pt=None):
         if pt is None:
@@ -114,9 +144,10 @@ class SnakeGameAI:
             pygame.draw.rect(self.display, BLUE1, pygame.Rect(pt.x, pt.y, BLOCK_SIZE, BLOCK_SIZE))
             pygame.draw.rect(self.display, BLUE2, pygame.Rect(pt.x+4, pt.y+4, 12, 12))
             
-        pygame.draw.rect(self.display, RED, pygame.Rect(self.food.x, self.food.y, BLOCK_SIZE, BLOCK_SIZE))
-        
-        text = font.render("Score: " + str(self.score), True, WHITE)
+        pygame.draw.rect(self.display, RED, pygame.Rect(self.healthy_food.x, self.healthy_food.y, BLOCK_SIZE, BLOCK_SIZE))
+        pygame.draw.rect(self.display, YELLOW, pygame.Rect(self.drug_food.x, self.drug_food.y, BLOCK_SIZE, BLOCK_SIZE))
+
+        text = font.render("Score: " + str(self.score) + "  Healthy seed:" + str(self.healthy_seed_consumed) + "  Drug seed:" + str(self.drug_seed_consumed), True, WHITE)
         self.display.blit(text, [0, 0])
         pygame.display.flip()
         
